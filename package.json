@@ -22,6 +22,7 @@
   "homepage": "https://github.com/saanuregh/yet-another-discord.js-musicbot-addon#readme",
   "dependencies": {
     "discord.js": "github:discordjs/discord.js",
+    "discord.js-pagination": "github:saanuregh/discord.js-pagination",
     "moment": "^2.24.0",
     "moment-duration-format": "^2.3.2",
     "node-superfetch": "^0.1.9",

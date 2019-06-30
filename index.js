@@ -4,6 +4,7 @@ const ytdlDiscord = require('ytdl-core-discord');
 const ytpl = require('ytpl');
 const request = require('node-superfetch');
 const moment = require('moment');
+const paginationEmbed = require('discord.js-pagination');
 require('moment-duration-format');
 
 module.exports = class MusicClient {
@@ -298,36 +299,6 @@ module.exports = class MusicClient {
 		}
 		return pages;
 	}
-	async paginationEmbed(msg, pages) {
-		if (!msg.channel) throw new Error('Channel is inaccessible.');
-		let page = 0;
-		const curPage = await msg.channel.send(pages[page].setFooter(`Page ${page + 1} / ${pages.length}`));
-		await this.postReactionEmojis(curPage, ['⏪', '⏩']);
-		const reactionCollector = curPage.createReactionCollector(
-			(reaction, user) => ['⏪', '⏩'].includes(reaction.emoji.name) && user.id === msg.author.id,
-			{ time: 120000 }
-		);
-		reactionCollector.on('collect', reaction => {
-			reaction.users.remove(msg.author);
-			switch (reaction.emoji.name) {
-				case '⏪':
-					page = page > 0 ? --page : pages.length - 1;
-					break;
-				case '⏩':
-					page = page + 1 < pages.length ? ++page : 0;
-					break;
-				default:
-					break;
-			}
-			curPage.edit(pages[page].setFooter(`Page ${page + 1} / ${pages.length}`));
-		});
-		reactionCollector.on('end', () => curPage.reactions.removeAll());
-		return curPage;
-	}
-	async postReactionEmojis(msg, emojiList) {
-		await msg.react(emojiList.shift());
-		if (emojiList.length > 0) this.postReactionEmojis(msg, emojiList);
-	}
 
 	async playFunction(msg, query) {
 		this.logger.info(`[COMMAND] TYPE:PLAY QUERY:${query} AUTHOR_ID:${msg.author.id} SERVERID:${msg.guild.id}`);
@@ -479,7 +450,7 @@ module.exports = class MusicClient {
 		this.logger.info(`[COMMAND] TYPE:HISTORY AUTHOR_ID:${msg.author.id} SERVERID:${msg.guild.id}`);
 		const server = this.getServer(msg.guild.id);
 		const pages = this.pageBuilder('History', server.history, 10);
-		this.paginationEmbed(msg, pages);
+		paginationEmbed(msg, pages);
 	}
 	showQueueFunction(msg) {
 		this.logger.info(`[COMMAND] TYPE:QUEUE AUTHOR_ID:${msg.author.id} SERVERID:${msg.guild.id}`);
@@ -490,6 +461,6 @@ module.exports = class MusicClient {
 			nowPlayingText = `[${nowPlaying.title}](${nowPlaying.url})\n*Requested by: <@${nowPlaying.requester}>*\n`;
 		}
 		const pages = this.pageBuilder('Queue', server.queue, 5, true, 'Now Playing', nowPlayingText);
-		this.paginationEmbed(msg, pages);
+		paginationEmbed(msg, pages);
 	}
 };
