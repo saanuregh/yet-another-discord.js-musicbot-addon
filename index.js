@@ -264,13 +264,12 @@ module.exports = class MusicClient {
 				return await msg.channel.send(embed.setDescription(`${text}`));
 		}
 	}
-	pageEmbed(_title, _pageInfo, _isField, _extraTitle, _extraText) {
+	pageEmbed(_title, _isField, _extraTitle, _extraText) {
 		class pageEmbed extends Discord.MessageEmbed {
-			constructor(title, avatarURL, color, pageInfo, isField = false, extraTitle, extraText) {
+			constructor(title, avatarURL, color, isField = false, extraTitle, extraText) {
 				super();
 				this.setAuthor(title, avatarURL);
 				this.setColor(color);
-				this.setFooter(`Page ${pageInfo.current} / ${pageInfo.total}`);
 				if (extraTitle) this.addField(extraTitle, extraText);
 				this.isField = isField;
 			}
@@ -279,22 +278,18 @@ module.exports = class MusicClient {
 			}
 		}
 		const avatarURL = this.client.user.displayAvatarURL();
-		return new pageEmbed(_title, avatarURL, this.color, _pageInfo, _isField, _extraTitle, _extraText);
+		return new pageEmbed(_title, avatarURL, this.color, _isField, _extraTitle, _extraText);
 	}
 	pageBuilder(title, list, pageLimit, isField, extraTitle, extraText) {
 		const pages = [];
-		const totalPages = Math.ceil(list.length / pageLimit);
-		const getPageInfo = (_totalpages = totalPages) => {
-			return { current: pages.length + 1, total: _totalpages };
-		};
 		if (list.length < 1) {
-			const pageEmbed = this.pageEmbed(title, getPageInfo(1), isField, extraTitle, extraText);
+			const pageEmbed = this.pageEmbed(title, isField, extraTitle, extraText);
 			pageEmbed.addContent(title, `${title} is empty.`);
 			pages.push(pageEmbed);
 		}
 		for (let i = 0; i < list.length; i += pageLimit) {
 			let text = '';
-			const pageEmbed = this.pageEmbed(title, getPageInfo(), isField, extraTitle, extraText);
+			const pageEmbed = this.pageEmbed(title, isField, extraTitle, extraText);
 			list.slice(i, i + pageLimit).forEach((entry, index) => {
 				text += `${i + index + 1}. [${entry.title}](${entry.url})\n*Requested by: <@${entry.requester}>*\n`;
 			});
@@ -306,7 +301,7 @@ module.exports = class MusicClient {
 	async paginationEmbed(msg, pages) {
 		if (!msg.channel) throw new Error('Channel is inaccessible.');
 		let page = 0;
-		const curPage = await msg.channel.send(pages[page]);
+		const curPage = await msg.channel.send(pages[page].setFooter(`Page ${page + 1} / ${pages.length}`));
 		await this.postReactionEmojis(curPage, ['⏪', '⏩']);
 		const reactionCollector = curPage.createReactionCollector(
 			(reaction, user) => ['⏪', '⏩'].includes(reaction.emoji.name) && user.id === msg.author.id,
@@ -324,7 +319,7 @@ module.exports = class MusicClient {
 				default:
 					break;
 			}
-			curPage.edit(pages[page]);
+			curPage.edit(pages[page].setFooter(`Page ${page + 1} / ${pages.length}`));
 		});
 		reactionCollector.on('end', () => curPage.reactions.removeAll());
 		return curPage;
