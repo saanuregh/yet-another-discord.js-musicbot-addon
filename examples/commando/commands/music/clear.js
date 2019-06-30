@@ -1,4 +1,4 @@
-const Command = require('../../structures/Command');
+const { Command } = require('discord.js-commando');
 
 module.exports = class MusicClearCommand extends Command {
 	constructor(client) {
@@ -7,12 +7,12 @@ module.exports = class MusicClearCommand extends Command {
 			aliases: [],
 			group: 'music',
 			memberName: 'clear',
-			description: 'Clear Queue',
+			description: 'Clears Queue',
 			clientPermissions: ['EMBED_LINKS']
 		});
 	}
 
 	run(msg) {
-         this.client.music.clearFunction(msg);
+		this.client.music.clearFunction(msg);
 	}
 };

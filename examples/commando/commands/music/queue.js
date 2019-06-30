@@ -1,4 +1,4 @@
-const Command = require('../../structures/Command');
+const { Command } = require('discord.js-commando');
 
 module.exports = class MusicQueueCommand extends Command {
 	constructor(client) {
@@ -13,6 +13,6 @@ module.exports = class MusicQueueCommand extends Command {
 	}
 
 	run(msg) {
-         this.client.music.showQueueFunction(msg);
+		this.client.music.showQueueFunction(msg);
 	}
 };

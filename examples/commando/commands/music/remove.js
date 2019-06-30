@@ -1,4 +1,4 @@
-const Command = require('../../structures/Command');
+const { Command } = require('discord.js-commando');
 
 module.exports = class MusicRemoveCommand extends Command {
 	constructor(client) {
@@ -11,7 +11,7 @@ module.exports = class MusicRemoveCommand extends Command {
 			clientPermissions: ['EMBED_LINKS'],
 			args: [
 				{
-					key: 'query',
+					key: 'index',
 					prompt: 'Index of the song?',
 					type: 'string'
 				}
@@ -19,7 +19,7 @@ module.exports = class MusicRemoveCommand extends Command {
 		});
 	}
 
-	run(msg, { query }) {
-         this.client.music.removeFunction(query,msg);
+	run(msg, { index }) {
+		this.client.music.removeFunction(msg, index);
 	}
 };

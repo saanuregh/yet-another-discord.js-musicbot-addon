@@ -1,666 +1,500 @@
-const Discord = require("discord.js");
-const ytdl = require("ytdl-core");
-const ytdlDiscord = require("ytdl-core-discord");
+const Discord = require('discord.js');
+const { getBasicInfo } = require('ytdl-core');
+const ytdlDiscord = require('ytdl-core-discord');
 const ytpl = require('ytpl');
-const request = require("request");
+const request = require('node-superfetch');
+const moment = require('moment');
+require('moment-duration-format');
 
 module.exports = class MusicClient {
-	constructor(client, apiKey, options) {
-		this.msgType = {
-			FAIL: "fail",
-			INFO: "info",
-			MUSIC: "music",
-			SEARCH: "search"
-		};
+	constructor(client, options) {
 		this.client = client;
-		this.apiKey = apiKey;
+		this.apiKey = options && options.apiKey;
 		this.defVolume = (options && options.defVolume) || 50;
-		this.bitRate = (options && options.bitrate) || "120000";
-		this.historyLength = (options && options.maxhistory) || 50;
-		this.searchFilters = (options && options.searchfilters) || [];
-		this.queue = [];
-		this.history = [];
-		this.mode = MusicClient.queueMode.NORMAL;
-		this.audioDispatcher = null;
+		this.bitRate = (options && options.bitRate) || '120000';
+		this.maxHistory = (options && options.maxHistory) || 50;
+		this.maxQueue = (options && options.maxQueue) || 500;
+		this.searchFilters = options && options.searchFilters;
+		this.color = (options && options.color) || 13632027;
+		this.logger = (options && options.logger) || console;
+		this.servers = new Map();
+		this.logger.info('[READY] Ready to play some tunes.');
 	}
+
 	static get queueMode() {
 		return {
-			NORMAL: "n",
-			REPEAT_ALL: "ra",
-			REPEAT_ONE: "ro"
+			NORMAL: 'n',
+			REPEAT_ALL: 'ra',
+			REPEAT_ONE: 'ro'
 		};
 	}
-	getCurrentSong() {
-		return new Promise((resolve, reject) => {
-			resolve(this.history[0]).catch(reject);
-		});
+	static get noteType() {
+		return {
+			ERROR: 'error',
+			INFO: 'info',
+			MUSIC: 'music',
+			SEARCH: 'search'
+		};
 	}
-	getNextSong() {
-		return new Promise((resolve, reject) => {
-			if (this.queue.length > 0) {
-				const song = this.queue[0];
-				if (this.mode === MusicClient.queueMode.NORMAL) {
-					// NORMAL: remove song first song from queue.
-					this.queue.shift();
-				} else if (this.mode === MusicClient.queueMode.REPEAT_ALL) {
-					// REPEAT_ALL: remove song first song from queue and reinsert it at the end.
-					this.queue.shift();
-					this.queue.push(song);
-				}
-				// REPEAT_ONE: Do nothing, leave current song at the top of the queue.
-				this.addSongToHistory(song);
-				resolve(song);
-			} else {
-				resolve(null);
-				return;
-			}
-		});
+	static song() {
+		return {
+			id: '',
+			title: '',
+			uploader: '',
+			uploaderURL: '',
+			requester: '',
+			requesterAvatarURL: '',
+			url: '',
+			duration: ''
+		};
 	}
-	addSongToHistory(song) {
-		if (this.history[0] !== song) {
-			this.history.unshift(song);
-			while (this.history.length > this.historyLength) {
-				this.history.pop();
+
+	getServer(serverId) {
+		if (!this.servers.has(serverId)) {
+			this.servers.set(serverId, {
+				id: serverId,
+				audioDispatcher: null,
+				queue: new Array(),
+				history: new Array(),
+				mode: MusicClient.queueMode.NORMAL,
+				volume: this.defVolume
+			});
+		}
+		const server = this.servers.get(serverId);
+		return server;
+	}
+	getCurrentSong(server) {
+		return server.history[0];
+	}
+	getNextSong(server) {
+		if (server.queue.length > 0) {
+			const song = server.queue[0];
+			if (server.mode === MusicClient.queueMode.NORMAL) {
+				server.queue.shift();
+			} else if (server.mode === MusicClient.queueMode.REPEAT_ALL) {
+				server.queue.shift();
+				server.queue.push(song);
 			}
+			return song;
 		}
 	}
-	search(payload) {
-		return new Promise((resolve, reject) => {
-			let searchString = payload.trim();
-			if (
-				searchString.includes("youtu.be/") ||
-				searchString.includes("youtube.com/")
-			) {
-				// YouTube url detected:
-				if (searchString.includes("&")) {
-					searchString = searchString.split("&")[0];
-				}
-				if (
-					searchString.includes("watch") ||
-					searchString.includes("youtu.be/")
-				) {
-					// YouTube video url detected:
-					this.getSongViaUrl(searchString)
-						.then(songs =>
-							resolve({ note: "Getting song from YouTube url~", songs })
-						)
-						.catch(reject);
-				} else if (searchString.includes("playlist")) {
-					// Youtube playlist url detected:
-					this.getSongsViaPlaylistUrl(searchString)
-						.then(songs =>
-							resolve({ note: "Getting songs from YouTube playlist url~", songs })
-						)
-						.catch(reject);
-				}
-			} else {
-				this.querySearch(payload)
-					.then(resolve)
-					.catch(reject);
-			}
+	addSongToHistory(server, song) {
+		if (server.history[0] !== song) {
+			server.history.unshift(song);
+			while (server.history.length > this.maxHistory) server.history.pop();
+		}
+	}
+	async playStream(song, msg, volume, seek = 0) {
+		const conn = await this.getVoiceConnection(msg);
+		return conn.play(await ytdlDiscord(song.url), {
+			bitrate: this.bitRate,
+			passes: 3,
+			seek,
+			volume: volume / 100,
+			type: 'opus'
 		});
 	}
-	querySearch(payload) {
-		return new Promise((resolve, reject) => {
-			const searchString = payload.trim();
-			let note = "Getting songs from YouTube search query~";
-			this.getSongsViaSearchQuery(searchString)
-				.then(songs => resolve({ note, songs }))
-				.catch(err => {
-					reject(new Error(`${err}`));
-				});
-		});
+	async playNow(server, song, msg) {
+		try {
+			if (server.audioDispatcher) this.stop(server, msg, false);
+			server.audioDispatcher = await this.playStream(song, msg, server.volume);
+			this.addSongToHistory(server, song);
+			server.audioDispatcher.on('finish', () => this.playNext(server, msg));
+			server.audioDispatcher.on('error', error => this.note(error, msg, MusicClient.noteType.ERROR));
+			this.displaySong(server, msg, song);
+			this.logger.info(`[PLAYER] Playing SONG_URL:${song.url} SERVERID:${server.id}`);
+		} catch (error) {
+			this.note(msg, error, MusicClient.noteType.ERROR);
+			this.logger.error(`[PLAYER] ${error.stack}`);
+			this.playNext(server, msg);
+		}
 	}
-	getSongViaUrl(searchString) {
-		return new Promise((resolve, reject) => {
-			ytdl.getBasicInfo(searchString, {}, (err, info) => {
-				if (err) {
-					return reject(err);
-				}
-				const song = new Song();
-				song.title = info.title;
-				song.url = info.video_url;
-				song.artist = info.author.name;
-				return resolve([song]);
-			});
-		});
-	}
-	getSongsViaPlaylistUrl(searchString) {
-		const playId = searchString.toString().split("list=")[1];
-		return new Promise((resolve, reject) => {
-			ytpl(playId, (err, playlist) => {
-				if (err) {
-					return reject(
-						new Error("Something went wrong fetching that playlist!")
-					);
-				}
-				if (playlist.items.length <= 0) {
-					return reject(
-						new Error("Couldn't get any songs from that playlist.")
-					);
-				}
-				const songs = [];
-				playlist.items.forEach(info => {
-					const song = new Song();
-					song.title = info.title;
-					song.url = info.url_simple;
-					song.artist = info.author.name;
-					songs.push(song);
-				});
-				return resolve(songs);
-			});
-		});
-	}
-	getSongsViaSearchQuery(searchString) {
-		return new Promise((resolve, reject) => {
-			const maxResults = 5;
-			request(
-				"https://www.googleapis.com/youtube/v3/search?" +
-				"part=snippet&" +
-				"type=video&" +
-				"videoCategoryId=10&" + // https://www.googleapis.com/youtube/v3/videoCategories?part=snippet&regionCode=DE&key=
-				"fields=items(id%2FvideoId%2Csnippet(channelTitle%2Ctitle))&" + // Cspell:disable-line
-				`maxResults=${maxResults}&` +
-				`q=${encodeURIComponent(searchString)}&` +
-				`key=${this.apiKey}`,
-				(error, response, body) => {
-					if (error) {
-						return reject(error);
-					}
-					if (
-						typeof body === "undefined" ||
-						typeof JSON.parse(body).items === "undefined"
-					) {
-						return reject(new Error("Something went wrong. Try again! [YT]"));
-					}
-					const result = JSON.parse(body).items;
-					if (result.length < 1) {
-						return reject(
-							new Error(`No results for Query: "${searchString}"! [YT]`)
-						);
-					}
-					let songs = [];
-					for (let index = 0; index < result.length; index++) {
-						const song = new Song();
-						song.title = result[index].snippet.title;
-						song.url = `https://www.youtube.com/watch?v=${
-							result[index].id.videoId
-							}`;
-						song.artist = result[index].snippet.channelTitle;
-						songs.push(song);
-					}
-					if (songs.length > 0) {
-						songs = [this.autoChoose(songs, searchString)];
-					}
-					return resolve(songs);
-				}
-			);
-		});
-	}
-	autoChoose(songs, query) {
-		let exclude = this.searchFilters;
-		exclude = exclude.filter(term => !query.includes(term));
-		let hit = songs[0];
-		songs.reverse().forEach(song => {
-			if (!new RegExp(exclude.join("|"), "u").test(song.title)) {
-				hit = song;
-			}
-		});
-		return hit;
-	}
-	handleSongEnd(msg, startTime) {
-		const delta = new Date() - startTime;
-		if (delta < 2000) {
-			// Try to reset everything.
-			this.simpleNote(
-				msg,
-				"Song ended to quickly: Try to reset voice.",
-				this.msgType.FAIL
-			);
-			this.audioDispatcher.destroy();
-			this.audioDispatcher = null;
+	playNext(server, msg) {
+		try {
+			const song = this.getNextSong(server);
+			if (song) return this.playNow(server, song, msg);
+			this.stop(server, msg, false);
 			this.disconnectVoiceConnection(msg);
-			this.getVoiceConnection(msg)
-				.then(() => this.playNext(msg))
-				.catch(err => this.simpleNote(msg, err, this.msgType.FAIL));
-			return;
-		}
-		this.playNext(msg);
-	}
-	playNow(song, msg) {
-		if (this.audioDispatcher) {
-			this.audioDispatcher.destroy();
-			this.audioDispatcher = null;
-		}
-		this.playStream(song, msg)
-			.then(dispatcher => {
-				this.addSongToHistory(song);
-				this.audioDispatcher = dispatcher;
-				const startTime = new Date();
-				this.audioDispatcher.on("finish", () =>
-					this.handleSongEnd(msg, startTime)
-				);
-				this.audioDispatcher.on("error", error => this.simpleNote(error, msg, this.msgType.FAIL));
-				this.simpleNote(msg, `Playing now: ${song.title}`, this.msgType.MUSIC);
-				this.displaySong(msg, song);
-			})
-			.catch(error => {
-				this.simpleNote(msg, error, this.msgType.FAIL);
-				this.playNext(msg);
-			});
-	}
-	playNext(msg) {
-		this.getNextSong()
-			.then(song => {
-				if (song === null) {
-					this.simpleNote(
-						msg,
-						"Queue is empty, playback finished!",
-						this.msgType.MUSIC
-					);
-					this.disconnectVoiceConnection(msg);
-				} else {
-					this.playNow(song, msg);
-				}
-			})
-			.catch(err => {
-				this.simpleNote(msg, err, this.msgType.FAIL);
-				this.disconnectVoiceConnection(msg);
-			});
-	}
-	play(msg) {
-		if (!this.audioDispatcher || this.audioDispatcher.writableLength <= 0) {
-			this.playNext(msg);
-		} else if (this.audioDispatcher.paused) {
-			this.audioDispatcher.resume();
-			this.simpleNote(msg, "Now playing!", this.msgType.MUSIC);
+			this.note(msg, 'Queue is empty, playback finished.', MusicClient.noteType.MUSIC);
+		} catch (error) {
+			this.disconnectVoiceConnection(msg);
 		}
 	}
-	stop(msg) {
-		if (!this.audioDispatcher) {
-			this.simpleNote(msg, "Audio stream not found!", this.msgType.FAIL);
-			return;
+	stop(server, msg, displayNote = true) {
+		if (!server.audioDispatcher && displayNote) {
+			return this.note(msg, 'Nothing playing right now.', MusicClient.noteType.ERROR);
 		}
-		this.audioDispatcher.destroy();
-		this.audioDispatcher = null;
-		this.simpleNote(msg, "Playback stopped!", this.msgType.MUSIC);
+		server.audioDispatcher.pause();
+		server.audioDispatcher.destroy();
+		server.audioDispatcher = null;
+		if (displayNote) return this.note(msg, 'Playback stopped.', MusicClient.noteType.MUSIC);
 	}
-	playStream(song, msg, seek = 0) {
-		return new Promise((resolve, reject) => {
-			const opt = {
-				bitrate: this.bitRate,
-				passes: 3,
-				seek,
-				volume: this.defVolume / 100,
-				type: "opus"
-			};
-			this.getVoiceConnection(msg)
-				.then(conn =>
-					this.getStream(song)
-						.then(stream => resolve(conn.play(stream, opt)))
-						.catch(err => reject(err))
-				)
-				.catch(err => reject(err));
-		});
+	async getVoiceConnection(msg) {
+		if (!msg.guild) throw new Error('Unable to find discord server.');
+		const voiceChannel = msg.member.voice.channel;
+		const voiceConnection = this.client.voice.connections.find(val => val.channel.guild.id === msg.guild.id);
+		if (!voiceConnection) {
+			if (voiceChannel && voiceChannel.joinable) return await voiceChannel.join();
+			throw new Error('Unable to join your voice channel.');
+		}
+		return voiceConnection;
 	}
 	disconnectVoiceConnection(msg) {
 		const serverId = msg.guild.id;
 		this.client.voice.connections.forEach(conn => {
-			if (conn.channel.guild.id === serverId) {
-				conn.disconnect();
-			}
+			if (conn.channel.guild.id === serverId) conn.disconnect();
 		});
 	}
-	getVoiceConnection(msg) {
-		if (typeof msg.guild === "undefined") {
-			return new Promise((resolve, reject) =>
-				reject(new Error("Unable to find discord server!"))
-			);
+	async getSongViaUrl(url) {
+		this.logger.info(`[REQUEST] URL:${url}`);
+		const info = await getBasicInfo(url);
+		const song = MusicClient.song();
+		song.id = info.video_id;
+		song.title = info.title;
+		song.url = info.video_url;
+		song.uploader = info.author.name;
+		song.uploaderURL = `https://www.youtube.com/channel/${info.player_response.videoDetails.channelId}`;
+		song.duration = moment.duration(parseInt(info.length_seconds), 'seconds').format();
+		return [song];
+	}
+	async getSongsViaPlaylistUrl(url) {
+		this.logger.info(`[REQUEST] PLAYLIST_URL:${url}`);
+		const playId = url.toString().split('list=')[1];
+		const playlist = await ytpl(playId);
+		if (playlist.items.length < 1) throw new Error('Couldn\'t get any songs from that playlist.');
+		const songs = [];
+		for (const info of playlist.items) {
+			const song = MusicClient.song();
+			song.id = info.id;
+			song.title = info.title;
+			song.url = info.url_simple;
+			song.uploader = info.author.name;
+			song.uploaderURL = info.author.ref;
+			song.duration = info.duration;
+			songs.push(song);
 		}
-		const serverId = msg.guild.id;
+		return songs;
+	}
+	filterSong(songs, query) {
+		let exclude = this.searchFilters;
+		exclude = exclude.filter(term => !query.includes(term));
+		let hit = songs[0];
+		songs.reverse().forEach(song => {
+			if (!new RegExp(exclude.join('|'), 'u').test(song.title)) hit = song;
+		});
+		return hit;
+	}
+	async getSongsViaSearchQuery(query) {
+		this.logger.info(`[REQUEST] QUERY:${query} FILTER:${this.searchFilters ? 'ENABLED' : 'DISABLED'}`);
+		const searchString = query.trim();
+		const { body, error } = await request.get('https://www.googleapis.com/youtube/v3/search').query({
+			part: 'snippet',
+			type: 'video',
+			maxResults: this.searchFilters ? 5 : 1,
+			q: searchString,
+			key: this.apiKey
+		});
+		if (!body.items.length || error) throw new Error(`No results for query: "${searchString}".`);
+		const songs = [];
+		for (const info of body.items) {
+			const song = MusicClient.song();
+			song.id = info.id.videoId;
+			song.title = info.snippet.title;
+			song.url = `https://www.youtube.com/watch?v=${info.id.videoId}`;
+			song.uploader = info.snippet.channelTitle;
+			song.uploaderURL = `https://www.youtube.com/channel/${info.snippet.channelId}`;
+			song.duration = moment
+				.duration(parseInt((await getBasicInfo(song.url)).length_seconds), 'seconds')
+				.format();
+			songs.push(song);
+		}
+		if (this.searchFilters && songs.length > 0) return [this.filterSong(songs, searchString)];
+		return [songs[0]];
+	}
+	async search(msg, query) {
+		let searchString = query.trim();
+		let songs = [];
+		let note;
+		if (searchString.includes('youtu.be/') || searchString.includes('youtube.com/')) {
+			if (searchString.includes('&')) searchString = searchString.split('&')[0];
+			if (searchString.includes('watch') || searchString.includes('youtu.be/')) {
+				note = await this.note(msg, '*~Searching for the YouTube URL~*', MusicClient.noteType.SEARCH);
+				songs = await this.getSongViaUrl(searchString);
+			} else if (searchString.includes('playlist')) {
+				note = await this.note(msg, '*~Searching for the YouTube playlist~*', MusicClient.noteType.SEARCH);
+				songs = await this.getSongsViaPlaylistUrl(searchString);
+			}
+		} else {
+			note = await this.note(msg, '*~Searching for the search query~*', MusicClient.noteType.SEARCH);
+			songs = await this.getSongsViaSearchQuery(query);
+		}
+		note.delete({ timeout: 3000 });
+		return songs;
+	}
+	displaySong(server, msg, song) {
+		if (!msg.channel) throw new Error('Channel is inaccessible.');
+		let repeatMode = 'Disabled';
+		if (server.mode === MusicClient.queueMode.REPEAT_ALL) repeatMode = 'All';
+		if (server.mode === MusicClient.queueMode.REPEAT_ONE) repeatMode = 'One';
+		const embed = new Discord.MessageEmbed()
+			.setAuthor('Now Playing', this.client.user.displayAvatarURL())
+			.setThumbnail(`https://img.youtube.com/vi/${song.id}/maxresdefault.jpg`)
+			.setColor(this.color)
+			.addField('Title', `[${song.title}](${song.url})`)
+			.addField('Uploader', `[${song.uploader}](${song.uploaderURL})`, true)
+			.addField('Length', `${song.duration}`, true)
+			.addField('Requester', `<@${song.requester}>`, true)
+			.addField('Volume', `${server.audioDispatcher.volume * 100}%`, true)
+			.addField('Repeat', `${repeatMode}`, true);
+		return msg.channel.send(embed);
+	}
+	async note(msg, text, type) {
+		if (!msg.channel) throw new Error('Channel is inaccessible.');
+		const embed = new Discord.MessageEmbed().setColor(this.color);
+		switch (type) {
+			case MusicClient.noteType.INFO:
+				return await msg.channel.send(embed.setDescription(`:information_source: | ${text}`));
+			case MusicClient.noteType.MUSIC:
+				return await msg.channel.send(embed.setDescription(`:musical_note: | ${text}`));
+			case MusicClient.noteType.SEARCH:
+				return await msg.channel.send(embed.setDescription(`:mag: | ${text}`));
+			case MusicClient.noteType.ERROR:
+				return await msg.channel.send(embed.setDescription(`:warning: | ${text}`));
+			default:
+				return await msg.channel.send(embed.setDescription(`${text}`));
+		}
+	}
+	pageEmbed(_title, _pageInfo, _isField, _extraTitle, _extraText) {
+		class pageEmbed extends Discord.MessageEmbed {
+			constructor(title, avatarURL, color, pageInfo, isField = false, extraTitle, extraText) {
+				super();
+				this.setAuthor(title, avatarURL);
+				this.setColor(color);
+				this.setFooter(`Page ${pageInfo.current} / ${pageInfo.total}`);
+				if (extraTitle) this.addField(extraTitle, extraText);
+				this.isField = isField;
+			}
+			addContent(title, text) {
+				!this.isField ? this.setDescription(text) : this.addField(title, text);
+			}
+		}
+		const avatarURL = this.client.user.displayAvatarURL();
+		return new pageEmbed(_title, avatarURL, this.color, _pageInfo, _isField, _extraTitle, _extraText);
+	}
+	pageBuilder(title, list, pageLimit, isField, extraTitle, extraText) {
+		const pages = [];
+		const totalPages = Math.ceil(list.length / pageLimit);
+		const getPageInfo = (_totalpages = totalPages) => {
+			return { current: pages.length + 1, total: _totalpages };
+		};
+		if (list.length < 1) {
+			const pageEmbed = this.pageEmbed(title, getPageInfo(1), isField, extraTitle, extraText);
+			pageEmbed.addContent(title, `${title} is empty.`);
+			pages.push(pageEmbed);
+		}
+		for (let i = 0; i < list.length; i += pageLimit) {
+			let text = '';
+			const pageEmbed = this.pageEmbed(title, getPageInfo(), isField, extraTitle, extraText);
+			list.slice(i, i + pageLimit).forEach((entry, index) => {
+				text += `${i + index + 1}. [${entry.title}](${entry.url})\n*Requested by: <@${entry.requester}>*\n`;
+			});
+			pageEmbed.addContent(title, text);
+			pages.push(pageEmbed);
+		}
+		return pages;
+	}
+	async paginationEmbed(msg, pages) {
+		if (!msg.channel) throw new Error('Channel is inaccessible.');
+		let page = 0;
+		const curPage = await msg.channel.send(pages[page]);
+		await this.postReactionEmojis(curPage, ['⏪', '⏩']);
+		const reactionCollector = curPage.createReactionCollector(
+			(reaction, user) => ['⏪', '⏩'].includes(reaction.emoji.name) && user.id === msg.author.id,
+			{ time: 120000 }
+		);
+		reactionCollector.on('collect', reaction => {
+			reaction.users.remove(msg.author);
+			switch (reaction.emoji.name) {
+				case '⏪':
+					page = page > 0 ? --page : pages.length - 1;
+					break;
+				case '⏩':
+					page = page + 1 < pages.length ? ++page : 0;
+					break;
+				default:
+					break;
+			}
+			curPage.edit(pages[page]);
+		});
+		reactionCollector.on('end', () => curPage.reactions.removeAll());
+		return curPage;
+	}
+	async postReactionEmojis(msg, emojiList) {
+		await msg.react(emojiList.shift());
+		if (emojiList.length > 0) this.postReactionEmojis(msg, emojiList);
+	}
+
+	async playFunction(msg, query) {
+		this.logger.info(`[COMMAND] TYPE:PLAY QUERY:${query} AUTHOR_ID:${msg.author.id} SERVERID:${msg.guild.id}`);
+		if (!query) return this.note(msg, 'No URL or query found.', MusicClient.noteType.ERROR);
+		const server = this.getServer(msg.guild.id);
 		const voiceChannel = msg.member.voice.channel;
-		return new Promise((resolve, reject) => {
-			// Search for established connection with this server.
-			const voiceConnection = this.client.voice.connections.find(
-				val => val.channel.guild.id === serverId
-			);
-			// If not already connected try to join.
-			if (typeof voiceConnection === "undefined") {
-				if (voiceChannel && voiceChannel.joinable) {
-					voiceChannel
-						.join()
-						.then(connection => {
-							resolve(connection);
-						})
-						.catch(() => {
-							reject(new Error("Unable to join your voice channel!"));
-						});
-				} else {
-					reject(new Error("Unable to join your voice channel!"));
-				}
-			} else {
-				resolve(voiceConnection);
+		if (!voiceChannel) return this.note(msg, 'Must be in a voice channel.', MusicClient.noteType.ERROR);
+		try {
+			let songs = await this.search(msg, query);
+			if (songs.length + server.queue.length > this.maxQueue) {
+				if (songs.length === 1) return this.note(msg, 'Queue is full.', MusicClient.noteType.ERROR);
+				(await this.note(msg, 'Playlist has been shortened.', MusicClient.noteType.ERROR)).delete({
+					timeout: 3000
+				});
+				songs = songs.slice(0, this.maxQueue - server.queue.length);
 			}
-		});
-	}
-	getStream(song) {
-		return new Promise((resolve, reject) => {
-			resolve(ytdlDiscord(song.url));
-		});
-	}
-	playFunction(payload, msg) {
-		if (typeof payload === "undefined" || payload.length === 0) {
-			this.simpleNote(msg, "Nothing to resume and no URL or query found!", this.msgType.FAIL);
-			return;
+			for (const song of songs) {
+				song.requester = msg.author.id;
+				song.requesterAvatarURL = msg.author.displayAvatarURL();
+			}
+			server.queue = server.queue.concat(songs);
+			this.logger.info(`[QUEUE] SERVERID:${msg.guild.id} Added ${songs.length} songs.`);
+			if (songs.length > 1) {
+				this.note(msg, `Added to queue: ${songs.length} songs`, MusicClient.noteType.MUSIC);
+			} else {
+				this.note(msg, `Added to queue: [${songs[0].title}](${songs[0].url})`, MusicClient.noteType.MUSIC);
+			}
+			if (!server.audioDispatcher) this.playNext(server, msg);
+		} catch (error) {
+			this.logger.error(`[COMMAND] TYPE:PLAY ${error.stack} SERVERID:${server.id}`);
+			this.note(msg, error, MusicClient.noteType.ERROR);
 		}
-		this.search(payload).
-			then(({ note, songs }) => {
-				this.simpleNote(msg, note, this.msgType.MUSIC).
-					then((infoMsg) => infoMsg.delete({ "timeout": 5000 }));
-				if (songs.length > 1) {
-					const enrichedSongs = songs.map((song) => {
-						song.requester = msg.author.username;
-						song.requesterAvatarURL = msg.author.displayAvatarURL();
-						return song;
-					});
-					this.queue = this.queue.concat(enrichedSongs);
-					const count = enrichedSongs.length;
-					this.simpleNote(msg, `${count} songs added to queue.`, this.msgType.MUSIC);
-				} else {
-					songs[0].requester = msg.author.username;
-					songs[0].requesterAvatarURL = msg.author.displayAvatarURL();
-					this.queue.push(songs[0]);
-					this.simpleNote(msg, `song added to queue: ${songs[0].title}`, this.msgType.MUSIC);
-				}
-				this.play(msg);
-			}).
-			catch((error) => this.simpleNote(msg, error, this.msgType.FAIL));
 	}
 	clearFunction(msg) {
-		this.queue = [];
-		this.simpleNote(msg, "Queue is now empty!", this.msgType.MUSIC);
+		this.logger.info(`[COMMAND] TYPE:CLEAR AUTHOR_ID:${msg.author.id} SERVERID:${msg.guild.id}`);
+		const server = this.getServer(msg.guild.id);
+		server.queue = new Array();
+		this.note(msg, 'Queue is now empty.', MusicClient.noteType.MUSIC);
 	}
 	leaveFunction(msg) {
-		this.stop(msg);
+		this.logger.info(`[COMMAND] TYPE:LEAVE AUTHOR_ID:${msg.author.id} SERVERID:${msg.guild.id}`);
+		const voiceConnection = this.client.voice.connections.find(val => val.channel.guild.id === msg.guild.id);
+		if (!voiceConnection) return this.note(msg, 'Not in a voice channel.', MusicClient.noteType.ERROR);
+		const server = this.getServer(msg.guild.id);
+		this.stop(server, msg);
 		this.disconnectVoiceConnection(msg);
-	}
-	loopFunction(payload, msg) {
-		if (payload === "1") {
-			this.mode = "ro";
-			this.simpleNote(msg, "Loop current song!", this.msgType.MUSIC);
-		} else if (this.mode === "n") {
-			this.mode = "ra";
-			this.simpleNote(msg, "Loop current queue!", this.msgType.MUSIC);
-		} else {
-			this.mode = "n";
-			this.simpleNote(msg, "No more looping!", this.msgType.MUSIC);
-		}
+		this.note(msg, 'Leaving voice channel.', MusicClient.noteType.MUSIC);
 	}
 	nowPlayingFunction(msg) {
-		this.getCurrentSong().
-			then((nowPlaying) => {
-				if (typeof nowPlaying === "undefined") {
-					this.simpleNote(msg, "Go check your ears, there is clearly nothing playing right now!", this, this.msgType.FAIL);
-				} else {
-					this.displaySong(
-						msg, nowPlaying
-					);
-				}
-			});
+		this.logger.info(`[COMMAND] TYPE:NOWPLAYING AUTHOR_ID:${msg.author.id} SERVERID:${msg.guild.id}`);
+		const server = this.getServer(msg.guild.id);
+		if (!server.audioDispatcher) return this.note(msg, 'Nothing playing right now.', MusicClient.noteType.ERROR);
+		this.displaySong(server, msg, this.getCurrentSong(server));
 	}
 	pauseFunction(msg) {
-		if (!this.audioDispatcher) {
-			this.simpleNote(msg, "Audio stream not found!", this.msgType.FAIL);
-		} else if (this.audioDispatcher.paused) {
-			this.simpleNote(msg, "Playback already paused!", this.msgType.FAIL);
+		this.logger.info(`[COMMAND] TYPE:PAUSE AUTHOR_ID:${msg.author.id} SERVERID:${msg.guild.id}`);
+		const server = this.getServer(msg.guild.id);
+		if (!server.audioDispatcher) {
+			this.note(msg, 'Nothing playing right now.', MusicClient.noteType.ERROR);
+		} else if (server.audioDispatcher.paused) {
+			this.note(msg, 'Music already paused.', MusicClient.noteType.ERROR);
 		} else {
-			this.audioDispatcher.pause(true);
-			this.simpleNote(msg, "Playback paused!", this.msgType.MUSIC);
+			server.audioDispatcher.pause(true);
+			this.note(msg, 'Playback paused.', MusicClient.noteType.MUSIC);
 		}
 	}
-	removeFunction(payload, msg) {
-		if (typeof payload === "undefined" || payload.length === 0 || isNaN(payload)) {
-			this.simpleNote(msg, "No queue number found!", this.msgType.FAIL);
-			this.simpleNote(msg, `Usage: ${this.usage}`, this.msgType.INFO);
-			return;
-		}
-		const index = payload - 1;
-		if (index < 0 || index >= this.queue.length) {
-			this.simpleNote(msg, "queue number out of bounds!", this.msgType.FAIL);
-			return;
-		}
-		const song = this.queue[index];
-		this.queue.splice(index, 1)
-		const message = `${song.title} - ${song.artist} removed from the queue!`;
-		this.simpleNote(msg, message, this.msgType.MUSIC);
-	}
-	showHistoryFunction(msg) {
-		const pages = [];
-		let historyText = "";
-		this.history.forEach((entry, index) => {
-			historyText += `${index + 1}. ${entry.title} - ${entry.artist}\n`;
-			if ((index + 1) % 10 === 0) {
-				historyText += `Page ${pages.length + 1} / ${Math.ceil(this.history.length / 10)}`;
-				const embed = new Discord.MessageEmbed();
-				embed.setAuthor('History', this.client.user.displayAvatarURL());
-				embed.setColor(48769);
-				embed.setDescription(historyText);
-				pages.push(embed);
-				historyText = "";
-			}
-		});
-		if (this.history.length % 10 !== 0) {
-			historyText += `Page ${pages.length + 1} / ${Math.ceil(this.history.length / 10)}`;
-			const embed = new Discord.MessageEmbed();
-			embed.setAuthor('History', this.client.user.displayAvatarURL());
-			embed.setColor(48769);
-			embed.setDescription(historyText);
-			pages.push(embed);
-		}
-		if (pages.length === 0) {
-			this.simpleNote(msg, "History is empty!", this.msgType.INFO);
+	resumeFunction(msg) {
+		this.logger.info(`[COMMAND] TYPE:RESUME AUTHOR_ID:${msg.author.id} SERVERID:${msg.guild.id}`);
+		const server = this.getServer(msg.guild.id);
+		if (!server.audioDispatcher) {
+			this.note(msg, 'Nothing playing right now.', MusicClient.noteType.ERROR);
+		} else if (!server.audioDispatcher.paused) {
+			this.note(msg, 'Music already playing.', MusicClient.noteType.ERROR);
 		} else {
-			this.pagedContent(msg, pages);
+			server.audioDispatcher.resume();
+			this.note(msg, 'Playback resumed.', MusicClient.noteType.MUSIC);
 		}
-	}
-	showQueueFunction(msg) {
-		const pages = [];
-		let queueText = "";
-		this.queue.forEach((entry, index) => {
-			queueText += `${index + 1}. ${entry.title} - ${entry.artist}\n`;
-			if ((index + 1) % 10 === 0) {
-				queueText += `Page ${pages.length + 1} / ${Math.ceil(this.queue.length / 10)}`;
-				const embed = new Discord.MessageEmbed();
-				embed.setAuthor('Queue', this.client.user.displayAvatarURL());
-				embed.setColor(48769);
-				embed.setDescription(queueText);
-				pages.push(embed);
-				queueText = "";
-			}
-		});
-		if (this.queue.length % 10 !== 0) {
-			queueText += `Page ${pages.length + 1} / ${Math.ceil(this.queue.length / 10)}`;
-			const embed = new Discord.MessageEmbed();
-			embed.setAuthor('Queue', this.client.user.displayAvatarURL());
-			embed.setColor(48769);
-			embed.setDescription(queueText);
-			pages.push(embed);
-		}
-		if (pages.length === 0) {
-			this.simpleNote(msg, "Queue is empty!", this.msgType.INFO);
-		} else {
-			this.pagedContent(msg, pages);
-		}
-	}
-	shuffleFunction(msg) {
-		this.queue = shuffle(this.queue);
-		this.simpleNote(msg, "Queue shuffled!", this.msgType.MUSIC);
-	}
-	skipFunction(msg) {
-		if (!this.audioDispatcher) {
-			this.simpleNote(msg, "Audio stream not found!", this.msgType.FAIL);
-			return;
-		}
-		this.simpleNote(msg, "Skipping song!", this.msgType.MUSIC);
-		this.audioDispatcher.end();
 	}
 	stopFunction(msg) {
-		this.stop(msg);
+		this.logger.info(`[COMMAND] TYPE:STOP AUTHOR_ID:${msg.author.id} SERVERID:${msg.guild.id}`);
+		const server = this.getServer(msg.guild.id);
+		this.stop(server, msg);
+		server.queue = new Array();
+		this.note(msg, 'Queue is now empty.', MusicClient.noteType.MUSIC);
 	}
-	volumeFunction(payload, msg) {
-		if (!payload) {
-			const note = `Volume is set to  ${this.defVolume} right now`;
-			this.simpleNote(msg, note, this.msgType.MUSIC);
-		} else if (isNaN(payload)) {
-			const note = `What the fuck, are you doing? Ever heard of a volume setting named "${payload}"?`;
-			this.simpleNote(msg, note, this.msgType.FAIL);
-		} else if (payload > 200 || payload < 0) {
-			const note = "A cheeky one, aren't you? Try with numbers between 0 and 200";
-			this.simpleNote(msg, note, this.msgType.FAIL);
-		} else {
-			this.simpleNote(msg, `Set Volume to  ${payload}`, this.msgType.MUSIC);
-			this.defVolume = payload;
-			if (this.audioDispatcher) {
-				this.audioDispatcher.setVolume(payload / 100);
-			}
+	repeatFunction(msg, mode) {
+		this.logger.info(`[COMMAND] TYPE:REPEAT MODE:${mode} AUTHOR_ID:${msg.author.id} SERVERID:${msg.guild.id}`);
+		const server = this.getServer(msg.guild.id);
+		switch (mode.trim().toLowerCase()) {
+			case 'one':
+				if (server.queue[0] !== server.history[0]) server.queue.unshift(server.history[0]);
+				server.mode = MusicClient.queueMode.REPEAT_ONE;
+				return this.note(msg, 'Repeat: One', MusicClient.noteType.MUSIC);
+			case 'all':
+				if (server.queue[server.queue.length - 1] !== server.history[0]) server.queue.push(server.history[0]);
+				server.mode = MusicClient.queueMode.REPEAT_ALL;
+				return this.note(msg, 'Repeat: All', MusicClient.noteType.MUSIC);
+			case 'off':
+				server.mode = MusicClient.queueMode.NORMAL;
+				return this.note(msg, 'Repeat: Disabled', MusicClient.noteType.MUSIC);
+			default:
+				return this.note(msg, 'Invalid argument.', MusicClient.noteType.ERROR);
 		}
 	}
-	simpleNote(msg, text, type) {
-		// this.debugPrint(text);
-		let ret = new Promise((resolve) => resolve({ "delete": () => null }));
-		if (typeof msg.channel === "undefined") {
-			return ret;
+	removeFunction(msg, songIndex) {
+		this.logger.info(
+			`[COMMAND] TYPE:REMOVE INDEX:${songIndex} AUTHOR_ID:${msg.author.id} SERVERID:${msg.guild.id}`
+		);
+		if (!songIndex) return this.note(msg, 'No index specified.', MusicClient.noteType.ERROR);
+		const index = songIndex - 1;
+		const server = this.getServer(msg.guild.id);
+		if (index < 0 || index >= server.queue.length) {
+			return this.note(msg, 'Index out of bounds.', MusicClient.noteType.ERROR);
 		}
-		text.toString().split("\n").
-			forEach((line) => {
-				switch (type) {
-					case this.msgType.INFO:
-						ret = msg.channel.send(`:information_source: | ${line}`);
-						return;
-					case this.msgType.MUSIC:
-						ret = msg.channel.send(`:musical_note: | ${line}`);
-						return;
-					case this.msgType.SEARCH:
-						ret = msg.channel.send(`:mag: | ${line}`);
-						return;
-					case this.msgType.FAIL:
-						ret = msg.channel.send(`:x: | ${line}`);
-						return;
-					default:
-						ret = msg.channel.send(`${line}`);
-				}
-			});
-		return ret;
+		const song = server.queue[index];
+		server.queue.splice(index, 1);
+		this.logger.info('[QUEUE] Removed 1 song.');
+		return this.note(msg, `[${song.title}](${song.url}) removed from the queue!`, MusicClient.noteType.MUSIC);
 	}
-	displaySong(msg, song) {
-		if (typeof msg.channel === "undefined") {
-			return this.simpleNote(msg, "Something happened!!!", this.msgType.FAIL);;
+	shuffleFunction(msg) {
+		this.logger.info(`[COMMAND] TYPE:SHUFFLE AUTHOR_ID:${msg.author.id} SERVERID:${msg.guild.id}`);
+		const server = this.getServer(msg.guild.id);
+		if (server.queue.length < 1) return this.note(msg, 'Queue is empty.', MusicClient.noteType.ERROR);
+		for (let i = server.queue.length - 1; i > 0; i--) {
+			const j = Math.floor(Math.random() * (i + 1));
+			[server.queue[i], server.queue[j]] = [server.queue[j], server.queue[i]];
 		}
-		const embed = new Discord.MessageEmbed();
-		for (const key in song) {
-			if (song[key] === "") {
-				song[key] = "-";
-			}
+		this.note(msg, 'Queue has shuffled.', MusicClient.noteType.MUSIC);
+	}
+	skipFunction(msg) {
+		this.logger.info(`[COMMAND] TYPE:SKIP AUTHOR_ID:${msg.author.id} SERVERID:${msg.guild.id}`);
+		const server = this.getServer(msg.guild.id);
+		if (!server.audioDispatcher) return this.note(msg, 'Nothing playing right now.', MusicClient.noteType.ERROR);
+		this.note(msg, 'Skipping song.', MusicClient.noteType.MUSIC);
+		server.audioDispatcher.end();
+	}
+	volumeFunction(msg, volume) {
+		this.logger.info(`[COMMAND] TYPE:VOLUME VALUE:${volume} AUTHOR_ID:${msg.author.id} SERVERID:${msg.guild.id}`);
+		if (isNaN(volume)) return this.note(msg, 'No volume specified.', MusicClient.noteType.ERROR);
+		if (volume < 0 || volume > 200) {
+			return this.note(msg, 'Volume should be between 0 and 200.', MusicClient.noteType.ERROR);
 		}
-		embed.setAuthor('Now Playing', this.client.user.displayAvatarURL());
-		embed.setThumbnail(`https://img.youtube.com/vi/${ytid(song.url)}/maxresdefault.jpg`);
-		embed.setColor(890629);
-		embed.addField("Title", `${song.title}`, true);
-		embed.addField("Artist", `${song.artist}`, true);
-		embed.setFooter(`Requested by ${song.requester}`, song.requesterAvatarURL);
-		msg.channel.send(embed)
+		const server = this.getServer(msg.guild.id);
+		this.note(msg, `Setting volume to ${volume}.`, MusicClient.noteType.MUSIC);
+		server.defVolume = volume;
+		if (server.audioDispatcher) server.audioDispatcher.setVolume(volume / 100);
 	}
-	pagedContent(msg, pages) {
-		if (typeof msg.channel === "undefined") {
-			return this.simpleNote(msg, "Something happened!!!", this.msgType.FAIL);;
+	showHistoryFunction(msg) {
+		this.logger.info(`[COMMAND] TYPE:HISTORY AUTHOR_ID:${msg.author.id} SERVERID:${msg.guild.id}`);
+		const server = this.getServer(msg.guild.id);
+		const pages = this.pageBuilder('History', server.history, 10);
+		this.paginationEmbed(msg, pages);
+	}
+	showQueueFunction(msg) {
+		this.logger.info(`[COMMAND] TYPE:QUEUE AUTHOR_ID:${msg.author.id} SERVERID:${msg.guild.id}`);
+		const server = this.getServer(msg.guild.id);
+		const nowPlaying = this.getCurrentSong(server);
+		let nowPlayingText = 'Nothing playing right now.';
+		if (nowPlaying && server.audioDispatcher) {
+			nowPlayingText = `[${nowPlaying.title}](${nowPlaying.url})\n*Requested by: <@${nowPlaying.requester}>*\n`;
 		}
-		return new Promise((resolve, reject) => {
-			let page = 0;
-			// Build choose menu.
-			msg.channel.send(pages[0]).
-				// Add reactions for page navigation.
-				then((curPage) => this.postReactionEmojis(curPage, ["⏪", "⏩"]).
-					then(() => {
-						// Add listeners to reactions.
-						const reactionCollector = curPage.createReactionCollector(
-							(reaction, user) => (["⏪", "⏩"].includes(reaction.emoji.name) && user.id === msg.author.id),
-							{ "time": 120000 }
-						);
-						// Handle reactions.
-						reactionCollector.on("collect", (reaction) => {
-							reaction.users.remove(msg.author);
-							switch (reaction.emoji.name) {
-								case "⏪":
-									page = (page > 0) ? --page : pages.length - 1;
-									break;
-								case "⏩":
-									page = (page + 1) < pages.length ? ++page : 0;
-									break;
-								default:
-									break;
-							}
-							curPage.edit(pages[page]);
-						});
-						// Timeout.
-						reactionCollector.on("end", () => curPage.reactions.removeAll());
-						resolve(curPage);
-					}).
-					catch(reject)).
-				catch(reject);
-		});
+		const pages = this.pageBuilder('Queue', server.queue, 5, true, 'Now Playing', nowPlayingText);
+		this.paginationEmbed(msg, pages);
 	}
-	postReactionEmojis(msg, emojiList) {
-		return new Promise((resolve, reject) => {
-			msg.react(emojiList.shift()).
-				then(() => {
-					if (emojiList.length > 0) {
-						// Send all reactions recursively.
-						this.postReactionEmojis(msg, emojiList).
-							then(resolve).
-							catch(reject);
-					} else {
-						resolve();
-					}
-				}).
-				catch(reject);
-		});
-	}
-}
-
-class Song {
-	constructor() {
-		this.title = "";
-		this.artist = "";
-		this.requester = "";
-		this.requesterAvatarURL = "";
-		this.url = "";
-		this.playlist = "";
-	}
-}
-
-const shuffle = array => {
-	let pos1 = 0,
-		pos2 = 0,
-		tmpVal = 0;
-	for (pos1 = array.length - 1; pos1 > 0; pos1--) {
-		pos2 = Math.floor(Math.random() * (pos1 + 1));
-		tmpVal = array[pos1];
-		array[pos1] = array[pos2];
-		array[pos2] = tmpVal;
-	}
-	return array;
 };
-
-const ytid = (url) => {
-	var ID = '';
-	url = url.replace(/(>|<)/gi, '').split(/(vi\/|v=|\/v\/|youtu\.be\/|\/embed\/)/);
-	if (url[2] !== undefined) {
-		ID = url[2].split(/[^0-9a-z_\-]/i);
-		ID = ID[0];
-	}
-	else {
-		ID = url;
-	}
-	return ID;
-}
-

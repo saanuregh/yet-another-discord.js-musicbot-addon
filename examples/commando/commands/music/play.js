@@ -1,4 +1,4 @@
-const Command = require('../../structures/Command');
+const { Command } = require('discord.js-commando');
 
 module.exports = class MusicPlayCommand extends Command {
 	constructor(client) {
@@ -13,14 +13,13 @@ module.exports = class MusicPlayCommand extends Command {
 				{
 					key: 'query',
 					prompt: 'What song would you like to play?',
-					type: 'string',
-					default: ''
+					type: 'string'
 				}
 			]
 		});
 	}
 
 	run(msg, { query }) {
-         this.client.music.playFunction(query,msg);
+		this.client.music.playFunction(msg, query);
 	}
 };
