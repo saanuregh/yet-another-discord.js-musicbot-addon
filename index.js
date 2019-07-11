@@ -232,7 +232,7 @@ module.exports = class MusicClient {
 		note.delete({ timeout: 3000 });
 		return songs;
 	}
-	displaySong(server, msg, song) {
+	async displaySong(server, msg, song) {
 		if (!msg.channel) throw new Error('Channel is inaccessible.');
 		let repeatMode = 'Disabled';
 		if (server.mode === MusicClient.queueMode.REPEAT_ALL) repeatMode = 'All';
@@ -247,7 +247,40 @@ module.exports = class MusicClient {
 			.addField('Requester', `<@${song.requester}>`, true)
 			.addField('Volume', `${server.audioDispatcher.volume * 100}%`, true)
 			.addField('Repeat', `${repeatMode}`, true);
-		return msg.channel.send(embed);
+		const songDisplay = await msg.channel.send(embed);
+		const emojiList = ['⏪', '⏯', '⏩', '⏹', '🔀', '🔁'];
+		for (const emoji of emojiList) await songDisplay.react(emoji);
+		const reactionCollector = songDisplay.createReactionCollector(
+			(reaction, user) => emojiList.includes(reaction.emoji.name) && !user.bot,
+			{ time: 60000 }
+		);
+		reactionCollector.on('collect', (reaction, user) => {
+			switch (reaction.emoji.name) {
+				case '⏪':
+					this.previousFunction(msg);
+					break;
+				case '⏯':
+					if (server.audioDispatcher.paused) this.resumeFunction(msg);
+					else this.pauseFunction(msg);
+					break;
+				case '⏩':
+					this.skipFunction(msg);
+					break;
+				case '⏹':
+					this.stopFunction(msg);
+					break;
+				case '🔀':
+					this.showQueueFunction(msg);
+					break;
+				case '🔁':
+					if (server.mode === MusicClient.queueMode.NORMAL) this.repeatFunction(msg, 'one');
+					else if (server.mode === MusicClient.queueMode.REPEAT_ONE) this.repeatFunction(msg, 'all');
+					else this.repeatFunction(msg, 'off');
+					break;
+				default:
+					break;
+			}
+		});
 	}
 	async note(msg, text, type) {
 		if (!msg.channel) throw new Error('Channel is inaccessible.');
@@ -427,6 +460,14 @@ module.exports = class MusicClient {
 			[server.queue[i], server.queue[j]] = [server.queue[j], server.queue[i]];
 		}
 		this.note(msg, 'Queue has shuffled.', MusicClient.noteType.MUSIC);
+	}
+	previousFunction(msg) {
+		this.logger.info(`[COMMAND] TYPE:PREVIOUS AUTHOR_ID:${msg.author.id} SERVERID:${msg.guild.id}`);
+		const server = this.getServer(msg.guild.id);
+		if (!server.audioDispatcher) return this.note(msg, 'Nothing playing right now.', MusicClient.noteType.ERROR);
+		this.note(msg, 'Previous song.', MusicClient.noteType.MUSIC);
+		if (server.queue[0] !== server.history[0]) server.queue.unshift(server.history[0]);
+		server.audioDispatcher.end();
 	}
 	skipFunction(msg) {
 		this.logger.info(`[COMMAND] TYPE:SKIP AUTHOR_ID:${msg.author.id} SERVERID:${msg.guild.id}`);
