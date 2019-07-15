@@ -254,7 +254,7 @@ module.exports = class MusicClient {
 			(reaction, user) => emojiList.includes(reaction.emoji.name) && !user.bot,
 			{ time: 60000 }
 		);
-		reactionCollector.on('collect', (reaction, user) => {
+		reactionCollector.on('collect', reaction => {
 			switch (reaction.emoji.name) {
 				case '⏪':
 					this.previousFunction(msg);
@@ -333,7 +333,7 @@ module.exports = class MusicClient {
 		return pages;
 	}
 
-	async playFunction(msg, query) {
+	async playFunction(msg, query, force = false) {
 		this.logger.info(`[COMMAND] TYPE:PLAY QUERY:${query} AUTHOR_ID:${msg.author.id} SERVERID:${msg.guild.id}`);
 		if (!query) return this.note(msg, 'No URL or query found.', MusicClient.noteType.ERROR);
 		const server = this.getServer(msg.guild.id);
@@ -352,7 +352,12 @@ module.exports = class MusicClient {
 				song.requester = msg.author.id;
 				song.requesterAvatarURL = msg.author.displayAvatarURL();
 			}
-			server.queue = server.queue.concat(songs);
+			if(force) {
+				server.queue.unshift(server.history[0], ...songs);
+				server.audioDispatcher.end();
+			}else {
+				server.queue = server.queue.concat(songs);
+			}
 			this.logger.info(`[QUEUE] SERVERID:${msg.guild.id} Added ${songs.length} songs.`);
 			if (songs.length > 1) {
 				this.note(msg, `Added to queue: ${songs.length} songs`, MusicClient.noteType.MUSIC);
