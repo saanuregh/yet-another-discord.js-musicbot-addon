@@ -453,6 +453,21 @@ module.exports = class MusicClient {
 				return this.note(msg, 'Invalid argument.', MusicClient.noteType.ERROR);
 		}
 	}
+	searchFiltersFunction(msg, mode) {
+		this.logger.info(
+			`[COMMAND] TYPE:SEARCHFILTER MODE:${mode} AUTHOR_ID:${msg.author.id} SERVERID:${msg.guild.id}`
+		);
+		switch (mode.trim().toLowerCase()) {
+			case 'on':
+				this.searchFiltersEnabled = true;
+				return this.note(msg, 'Search filter: Enabled', MusicClient.noteType.INFO);
+			case 'off':
+				this.searchFiltersEnabled = false;
+				return this.note(msg, 'Repeat: Disabled', MusicClient.noteType.INFO);
+			default:
+				return this.note(msg, 'Invalid argument.', MusicClient.noteType.ERROR);
+		}
+	}
 	removeFunction(msg, songIndex) {
 		this.logger.info(
 			`[COMMAND] TYPE:REMOVE INDEX:${songIndex} AUTHOR_ID:${msg.author.id} SERVERID:${msg.guild.id}`
