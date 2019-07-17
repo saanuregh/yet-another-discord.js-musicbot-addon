@@ -100,7 +100,6 @@ module.exports = class MusicClient {
 	}
 	async playNow(guild, song, msg) {
 		try {
-			// if (guild.audioDispatcher) this.stop(guild, msg, false);
 			if (this.timeout) {
 				clearTimeout(this.timeout);
 				this.timeout = null;
@@ -122,7 +121,9 @@ module.exports = class MusicClient {
 			const song = this.getNextSong(guild);
 			if (song) return this.playNow(guild, song, msg);
 			this.stop(guild, msg, false);
-			this.disconnectVoiceConnection(msg);
+			if (this.autoLeaveIn !== 0) {
+				this.timeout = setTimeout(() => this.disconnectVoiceConnection(msg), this.autoLeaveIn);
+			}
 			this.note(msg, 'Queue is empty, playback finished.', MusicClient.noteType.MUSIC);
 		} catch (error) {
 			this.disconnectVoiceConnection(msg);
@@ -137,24 +138,20 @@ module.exports = class MusicClient {
 		guild.audioDispatcher = null;
 		if (displayNote) return this.note(msg, 'Playback stopped.', MusicClient.noteType.MUSIC);
 	}
-	async getVoiceConnection(msg) {
+	async getVoiceConnection(msg, force = false) {
 		if (!msg.guild) throw new Error('Unable to find discord server.');
 		const voiceChannel = msg.member.voice.channel;
 		const voiceConnection = this.client.voice.connections.find(val => val.channel.guild.id === msg.guild.id);
-		if (!voiceConnection) {
+		if (!voiceConnection || force) {
 			if (voiceChannel && voiceChannel.joinable) return await voiceChannel.join();
 			throw new Error('Unable to join your voice channel.');
 		}
 		return voiceConnection;
 	}
 	disconnectVoiceConnection(msg) {
-		if (this.autoLeaveIn !== 0) {
-			this.timeout = setTimeout(() => {
-				this.client.voice.connections.forEach(conn => {
-					if (conn.channel.guild.id === msg.guild.id) conn.disconnect();
-				});
-			}, this.autoLeaveIn);
-		}
+		this.client.voice.connections.forEach(conn => {
+			if (conn.channel.guild.id === msg.guild.id) conn.disconnect();
+		});
 	}
 	async getSongViaUrl(url) {
 		this.logger.info(`[REQUEST] URL:${url}`);
@@ -191,7 +188,7 @@ module.exports = class MusicClient {
 		exclude = exclude.filter(term => !query.includes(term));
 		let hit = songs[0];
 		songs.reverse().forEach(song => {
-			if (!new RegExp(exclude.join('|'), 'u').test(song.title)) hit = song;
+			if (!new RegExp(exclude.join('|'), 'u').test(song.title.trim().toLowerCase())) hit = song;
 		});
 		return hit;
 	}
@@ -389,6 +386,13 @@ module.exports = class MusicClient {
 		guild.queue = new Array();
 		this.note(msg, 'Queue is now empty.', MusicClient.noteType.MUSIC);
 	}
+	async joinFunction(msg) {
+		this.logger.info(`[COMMAND] TYPE:JOIN AUTHOR_ID:${msg.author.id} SERVERID:${msg.guild.id}`);
+		const voiceChannel = msg.member.voice.channel;
+		if (!voiceChannel) return this.note(msg, 'Must be in a voice channel.', MusicClient.noteType.ERROR);
+		await this.getVoiceConnection(msg, true);
+		this.note(msg, 'Joining voice channel.', MusicClient.noteType.MUSIC);
+	}
 	leaveFunction(msg) {
 		this.logger.info(`[COMMAND] TYPE:LEAVE AUTHOR_ID:${msg.author.id} SERVERID:${msg.guild.id}`);
 		const voiceConnection = this.client.voice.connections.find(val => val.channel.guild.id === msg.guild.id);
@@ -524,12 +528,18 @@ module.exports = class MusicClient {
 	}
 	showSearchFiltersFunction(msg) {
 		this.logger.info(`[COMMAND] TYPE:SHOWFILTERS AUTHOR_ID:${msg.author.id} SERVERID:${msg.guild.id}`);
-		this.note(msg, `Search filters are ${this.searchFilters.join(', ')}.`, MusicClient.noteType.INFO);
+		this.note(
+			msg,
+			`Current search filters are \`${this.searchFilters.join(', ')}\`.\nSearch filters are \`${
+				this.searchFiltersEnabled ? 'enabled' : 'disabled'
+			}\`.`,
+			MusicClient.noteType.INFO
+		);
 	}
 	setSearchFiltersFunction(msg, filters) {
 		this.logger.info(`[COMMAND] TYPE:SETFILTERS AUTHOR_ID:${msg.author.id} SERVERID:${msg.guild.id}`);
 		this.searchFilters = filters;
-		this.note(msg, `New Search filters are ${this.searchFilters.join(', ')}.`, MusicClient.noteType.INFO);
+		this.showSearchFiltersFunction(msg);
 	}
 	searchFiltersModeFunction(msg, mode) {
 		this.logger.info(`[COMMAND] TYPE:FILTERSMODE MODE:${mode} AUTHOR_ID:${msg.author.id} SERVERID:${msg.guild.id}`);
