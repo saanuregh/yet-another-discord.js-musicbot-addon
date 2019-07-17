@@ -3,7 +3,7 @@
     <a href="https://nodei.co/npm/yet-another-discord.js-musicbot-addon
 /"><img src="https://nodei.co/npm/yet-another-discord.js-musicbot-addon.png?downloads=true&stars=true" alt="NPM info" /></a>
   </p>
-</div> 
+</div>
 
 # Yet Another Discord MusicBot Addon
 An easily customizable Node.js based music extension/bot for Discord.js@12.0.0 (master) projects using YouTube. Doesn't have inbuilt command handling, either use discord.js-commando or make your own. Supports multiple servers.
@@ -25,14 +25,14 @@ __The commands available are:__
 * `np`: Show the current playing song.
 
 # Installation
-__Pre-installation:__  
+__Pre-installation:__
 1. `npm install github:discordjs/discord.js`
 
-2. `npm install node-opus` or `npm install opusscript`  
+2. `npm install node-opus` or `npm install opusscript`
 Required for voice. Discord.js _prefers_ node-opus.
 
 __Installation:__
-* `npm install yet-another-discord.js-musicbot-addon`  
+* `npm install yet-another-discord.js-musicbot-addon`
 Long name I know 😁
 
 # Examples
@@ -62,7 +62,7 @@ client.music = new MusicClient(client, {
 // Connect the bot with your Discord applications bot token.
 client.login("token");
 ```
-__Commands example__  
+__Commands example__
 See the examples directory.
 Currently i have only commando examples there.
 
@@ -83,3 +83,21 @@ The options you can pass in `new MusicClient(client,{options})` and their types 
 | maxHistory | Number | Max history size allowed. | 50 |
 | color | Number | Color of the embeds. | 13632027 |
 | logger | Class or Function | For custom logger. | console |
+
+# Functions.
+playFunction(msg, query, force = false)
+pauseFunction(msg)
+resumeFunction(msg)
+stopFunction(msg)
+clearFunction(msg)
+leaveFunction(msg)
+repeatFunction(msg, mode)
+shuffleFunction(msg)
+skipFunction(msg)
+previousFunction(msg)
+removeFunction(msg, songIndex)
+volumeFunction(msg, volume)
+nowPlayingFunction(msg)
+showHistoryFunction(msg)
+showQueueFunction(msg)
+searchFiltersFunction(msg, mode)

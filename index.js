@@ -293,6 +293,7 @@ module.exports = class MusicClient {
 					break;
 			}
 		});
+		reactionCollector.on('end', () => songDisplay.reactions.removeAll());
 	}
 	async note(msg, text, type) {
 		if (!msg.channel) throw new Error('Channel is inaccessible.');
@@ -453,21 +454,6 @@ module.exports = class MusicClient {
 				return this.note(msg, 'Invalid argument.', MusicClient.noteType.ERROR);
 		}
 	}
-	searchFiltersFunction(msg, mode) {
-		this.logger.info(
-			`[COMMAND] TYPE:SEARCHFILTER MODE:${mode} AUTHOR_ID:${msg.author.id} SERVERID:${msg.guild.id}`
-		);
-		switch (mode.trim().toLowerCase()) {
-			case 'on':
-				this.searchFiltersEnabled = true;
-				return this.note(msg, 'Search filter: Enabled', MusicClient.noteType.INFO);
-			case 'off':
-				this.searchFiltersEnabled = false;
-				return this.note(msg, 'Repeat: Disabled', MusicClient.noteType.INFO);
-			default:
-				return this.note(msg, 'Invalid argument.', MusicClient.noteType.ERROR);
-		}
-	}
 	removeFunction(msg, songIndex) {
 		this.logger.info(
 			`[COMMAND] TYPE:REMOVE INDEX:${songIndex} AUTHOR_ID:${msg.author.id} SERVERID:${msg.guild.id}`
@@ -535,5 +521,27 @@ module.exports = class MusicClient {
 		}
 		const pages = this.pageBuilder('Queue', guild.queue, 5, true, 'Now Playing', nowPlayingText);
 		paginationEmbed(msg, pages);
+	}
+	showSearchFiltersFunction(msg) {
+		this.logger.info(`[COMMAND] TYPE:SHOWFILTERS AUTHOR_ID:${msg.author.id} SERVERID:${msg.guild.id}`);
+		this.note(msg, `Search filters are ${this.searchFilters.join(', ')}.`, MusicClient.noteType.INFO);
+	}
+	setSearchFiltersFunction(msg, filters) {
+		this.logger.info(`[COMMAND] TYPE:SETFILTERS AUTHOR_ID:${msg.author.id} SERVERID:${msg.guild.id}`);
+		this.searchFilters = filters;
+		this.note(msg, `New Search filters are ${this.searchFilters.join(', ')}.`, MusicClient.noteType.INFO);
+	}
+	searchFiltersModeFunction(msg, mode) {
+		this.logger.info(`[COMMAND] TYPE:FILTERSMODE MODE:${mode} AUTHOR_ID:${msg.author.id} SERVERID:${msg.guild.id}`);
+		switch (mode.trim().toLowerCase()) {
+			case 'on':
+				this.searchFiltersEnabled = true;
+				return this.note(msg, 'Search filter: Enabled', MusicClient.noteType.INFO);
+			case 'off':
+				this.searchFiltersEnabled = false;
+				return this.note(msg, 'Repeat: Disabled', MusicClient.noteType.INFO);
+			default:
+				return this.note(msg, 'Invalid argument.', MusicClient.noteType.ERROR);
+		}
 	}
 };
