@@ -26,11 +26,11 @@
     "moment": "^2.24.0",
     "moment-duration-format": "^2.3.2",
     "node-superfetch": "^0.1.9",
-    "ytdl-core": "^0.29.3",
+    "ytdl-core": "^0.29.5",
     "ytdl-core-discord": "^1.0.3",
-    "ytpl": "^0.1.14"
+    "ytpl": "^0.1.15"
   },
   "devDependencies": {
-    "eslint": "^5.16.0"
+    "eslint": "^6.2.2"
   }
 }

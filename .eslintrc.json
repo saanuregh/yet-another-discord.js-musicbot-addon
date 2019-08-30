@@ -8,6 +8,7 @@
 		"ecmaVersion": 2017
 	},
 	"rules": {
+		"require-atomic-updates": "never",
 		"brace-style": [
 			"error",
 			"1tbs",
