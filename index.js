@@ -1,4 +1,4 @@
-const Discord = require('discord.js');
+const { MessageEmbed } = require('discord.js');
 const { getBasicInfo } = require('ytdl-core');
 const ytdlDiscord = require('ytdl-core-discord');
 const ytpl = require('ytpl');
@@ -246,7 +246,7 @@ module.exports = class MusicClient {
 		let repeatMode = 'Disabled';
 		if (guild.mode === MusicClient.queueMode.REPEAT_ALL) repeatMode = 'All';
 		if (guild.mode === MusicClient.queueMode.REPEAT_ONE) repeatMode = 'One';
-		const embed = new Discord.MessageEmbed()
+		const embed = new MessageEmbed()
 			.setAuthor('Now Playing', this.client.user.displayAvatarURL())
 			.setThumbnail(`https://img.youtube.com/vi/${song.id}/maxresdefault.jpg`)
 			.setColor(this.color)
@@ -294,7 +294,7 @@ module.exports = class MusicClient {
 	}
 	async note(msg, text, type) {
 		if (!msg.channel) throw new Error('Channel is inaccessible.');
-		const embed = new Discord.MessageEmbed().setColor(this.color);
+		const embed = new MessageEmbed().setColor(this.color);
 		switch (type) {
 			case MusicClient.noteType.INFO:
 				return await msg.channel.send(embed.setDescription(`:information_source: | ${text}`));
@@ -309,7 +309,7 @@ module.exports = class MusicClient {
 		}
 	}
 	pageEmbed(_title, _isField, _extraTitle, _extraText) {
-		class pageEmbed extends Discord.MessageEmbed {
+		class pageEmbed extends MessageEmbed {
 			constructor(title, avatarURL, color, isField = false, extraTitle, extraText) {
 				super();
 				this.setAuthor(title, avatarURL);

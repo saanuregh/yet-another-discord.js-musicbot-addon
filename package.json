@@ -28,9 +28,9 @@
     "node-superfetch": "^0.1.9",
     "ytdl-core": "^0.29.5",
     "ytdl-core-discord": "^1.0.3",
-    "ytpl": "^0.1.15"
+    "ytpl": "^0.1.16"
   },
   "devDependencies": {
-    "eslint": "^6.2.2"
+    "eslint": "^6.3.0"
   }
 }
