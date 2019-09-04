@@ -1,6 +1,5 @@
 const { MessageEmbed } = require('discord.js');
-const { getBasicInfo } = require('ytdl-core');
-const ytdlDiscord = require('ytdl-core-discord');
+const ytdl = require('ytdl-core-discord');
 const ytpl = require('ytpl');
 const request = require('node-superfetch');
 const moment = require('moment');
@@ -90,7 +89,7 @@ module.exports = class MusicClient {
 	}
 	async playStream(song, msg, volume, seek = 0) {
 		const conn = await this.getVoiceConnection(msg);
-		return conn.play(await ytdlDiscord(song.url), {
+		return conn.play(await ytdl(song.url), {
 			bitrate: this.bitRate,
 			passes: 3,
 			seek,
@@ -155,13 +154,13 @@ module.exports = class MusicClient {
 	}
 	async getSongViaUrl(url) {
 		this.logger.info(`[REQUEST] URL:${url}`);
-		const info = await getBasicInfo(url);
+		const info = await ytdl.getBasicInfo(url);
 		const song = MusicClient.song();
 		song.id = info.video_id;
 		song.title = info.title;
 		song.url = info.video_url;
 		song.uploader = info.author.name;
-		song.uploaderURL = `https://www.youtube.com/channel/${info.player_response.videoDetails.channelId}`;
+		song.uploaderURL = info.author.channel_url;
 		song.duration = moment.duration(parseInt(info.length_seconds), 'seconds').format();
 		return [song];
 	}
@@ -212,7 +211,7 @@ module.exports = class MusicClient {
 			song.uploader = info.snippet.channelTitle;
 			song.uploaderURL = `https://www.youtube.com/channel/${info.snippet.channelId}`;
 			song.duration = moment
-				.duration(parseInt((await getBasicInfo(song.url)).length_seconds), 'seconds')
+				.duration(parseInt((await ytdl.getBasicInfo(song.url)).length_seconds), 'seconds')
 				.format();
 			songs.push(song);
 		}
