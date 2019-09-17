@@ -30,6 +30,6 @@
     "ytpl": "^0.1.16"
   },
   "devDependencies": {
-    "eslint": "^6.3.0"
+    "eslint": "^6.4.0"
   }
 }
