@@ -89,7 +89,16 @@ module.exports = class MusicClient {
 	}
 	async playStream(song, msg, volume, seek = 0) {
 		const conn = await this.getVoiceConnection(msg);
-		return conn.play(await ytdl(song.url), {
+		const info = await ytdl.getBasicInfo(song.url);
+		const isLive = info.player_response.videoDetails.isLiveContent && info.player_response.videoDetails.isLive;
+		const options = {
+			filter: 'audioonly',
+			quality: 'highestaudio'
+		};
+		if (isLive) {
+			options.begin = Date.now();
+		}
+		return conn.play(await ytdl(song.url, options), {
 			bitrate: this.bitRate,
 			passes: 3,
 			seek,
