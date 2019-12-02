@@ -11,7 +11,7 @@ module.exports = class MusicClient {
 		this.client = client;
 		this.apiKey = options && options.apiKey;
 		this.defVolume = (options && options.defVolume) || 50;
-		this.bitRate = (options && options.bitRate) || '120000';
+		this.bitRate = (options && options.bitRate) || 'auto';
 		this.maxHistory = (options && options.maxHistory) || 50;
 		this.maxQueue = (options && options.maxQueue) || 500;
 		this.searchFilters = options && options.searchFilters;
@@ -93,7 +93,8 @@ module.exports = class MusicClient {
 		const isLive = info.player_response.videoDetails.isLiveContent && info.player_response.videoDetails.isLive;
 		const options = {
 			filter: 'audioonly',
-			quality: 'highestaudio'
+			quality: 'highestaudio',
+			highWaterMark: 1 << 25
 		};
 		if (isLive) {
 			options.begin = Date.now();
@@ -103,7 +104,8 @@ module.exports = class MusicClient {
 			passes: 3,
 			seek,
 			volume: volume / 100,
-			type: 'opus'
+			type: 'opus',
+			highWaterMark: 1
 		});
 	}
 	async playNow(guild, song, msg) {

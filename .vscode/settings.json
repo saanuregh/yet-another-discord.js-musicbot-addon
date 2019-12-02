@@ -7,7 +7,6 @@
     "formatContextMenu.closeAfterSave": true,
     "prettier.printWidth": 120,
     "prettier.tabWidth": 4,
-    "prettier.eslintIntegration": true,
     "spellright.language": [
         "en"
     ],
