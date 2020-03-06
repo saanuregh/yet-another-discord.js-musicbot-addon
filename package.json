@@ -1,6 +1,6 @@
 {
   "name": "yet-another-discord.js-musicbot-addon",
-  "version": "2.2.4",
+  "version": "2.2.5",
   "description": "yet another discord.js musicbot addon, but based on discord.js@12.0.0 (master)",
   "main": "index.js",
   "scripts": {
@@ -25,11 +25,11 @@
     "discord.js-pagination": "github:saanuregh/discord.js-pagination",
     "moment": "^2.24.0",
     "moment-duration-format": "^2.3.2",
-    "node-superfetch": "^0.1.9",
+    "node-superfetch": "^0.1.10",
     "ytdl-core-discord": "github:amishshah/ytdl-core-discord",
-    "ytpl": "^0.1.18"
+    "ytpl": "^0.1.20"
   },
   "devDependencies": {
-    "eslint": "^6.7.2"
+    "eslint": "^6.8.0"
   }
 }
