@@ -25,7 +25,7 @@
     "discord.js-pagination": "github:saanuregh/discord.js-pagination",
     "moment": "^2.24.0",
     "moment-duration-format": "^2.3.2",
-    "node-superfetch": "^0.1.10",
+    "node-superfetch": "^0.2.2",
     "ytdl-core-discord": "github:amishshah/ytdl-core-discord",
     "ytpl": "^0.1.20"
   },
