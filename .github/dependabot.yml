@@ -1,0 +1,29 @@
+version: 2
+updates:
+- package-ecosystem: npm
+  directory: "/"
+  schedule:
+    interval: daily
+  open-pull-requests-limit: 10
+  ignore:
+  - dependency-name: eslint
+    versions:
+    - 7.18.0
+    - 7.19.0
+    - 7.20.0
+    - 7.21.0
+    - 7.22.0
+    - 7.23.0
+    - 7.24.0
+  - dependency-name: ytpl
+    versions:
+    - 2.0.4
+    - 2.0.5
+    - 2.1.0
+    - 2.1.1
+  - dependency-name: node-superfetch
+    versions:
+    - 0.1.11
+  - dependency-name: lodash
+    versions:
+    - 4.17.20
